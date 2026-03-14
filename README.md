@@ -6,15 +6,17 @@
 
 TUI for reviewing AI-generated code and plans — built for human-in-the-loop agentic coding workflows.
 
-Read a plan or review code changes across multiple files, leave inline comments, and let Claude Code address your feedback automatically.
+Read a plan or review code changes across multiple files, leave inline comments, and let your coding agent address your feedback automatically.
 
-Built for the human-in-the-loop workflow: Your agent the writes code or a plan, you review it in a TUI, your agent seamlessly reads your comments and makes changes.
+Built for the human-in-the-loop workflow: Your agent writes code or a plan, you review it in a TUI, your agent seamlessly reads your comments and makes changes.
+
+Works with **Claude Code**, **Codex CLI**, and **OpenCode**.
 
 ![crit code review demo](demo/code-review.gif)
 
 ## Install
 
-### Claude Code Plugin Marketplace (recommended)
+### Claude Code Plugin Marketplace (recommended for Claude Code)
 
 crit is available as a Claude Code plugin. Add the marketplace and install:
 
@@ -37,33 +39,48 @@ Make sure `$GOPATH/bin` (defaults to `~/go/bin`) is in your `PATH`:
 export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-### Manual skill install
+## Agent Setup
 
-If you prefer not to use the plugin, you can install the skill directly:
+### Auto-detect
+
+If you're running inside an agent, crit can auto-detect it:
 
 ```bash
-crit setup-claude          # Install globally (~/.claude/skills/)
-crit setup-claude --project # Install for current project only
+crit setup              # Auto-detect agent and install globally
+crit setup --project    # Install for current project only
 ```
 
-Then use `/crit-review <path>` in Claude Code for document reviews, or `/crit-code-review` for multi-file code reviews.
+### Per-agent setup
+
+```bash
+# Claude Code
+crit setup --agent claude             # Install skills to ~/.claude/skills/
+crit setup --agent claude --project   # Install to .claude/skills/
+
+# Codex CLI
+crit setup --agent codex              # Install skills to ~/.codex/skills/
+crit setup --agent codex --project    # Append crit section to AGENTS.md
+
+# OpenCode
+crit setup --agent opencode           # Install skills to ~/.config/opencode/skills/
+crit setup --agent opencode --project # Append crit section to AGENTS.md
+```
+
+Use `--force` to overwrite existing files.
 
 ## Requirements
 
 - **Go 1.21+** for building from source
-- **tmux** — required for the Claude Code integration. Crit opens the review TUI in a tmux split pane next to Claude Code.
+- **tmux** (optional) — when available, crit opens the review TUI in a tmux split pane next to your agent. Without tmux, crit uses a file-based signal to coordinate between the agent and the TUI.
 
-### Starting a tmux session
-
-If you're not already in tmux, start one before launching Claude Code:
+### Starting a tmux session (recommended)
 
 ```bash
 tmux new -s work
-# Now launch Claude Code inside this tmux session
-claude
+# Now launch your coding agent inside this tmux session
 ```
 
-If you forget, crit will tell you — but the split-pane review won't work outside of tmux.
+Without tmux, `--detach --wait` creates a signal file and waits for you to run `crit review` in another terminal.
 
 ## Code Review (multi-file)
 
@@ -88,7 +105,7 @@ crit status --code
 2. Navigate between files and leave inline comments on the changes
 3. Quit the TUI — comments are saved to `.crit/`
 4. `crit status --code` outputs all comments across files as JSON
-5. Claude (or any tool) reads the comments and edits the files
+5. Your agent reads the comments and edits the files
 
 ## Document Review (single file)
 
@@ -110,15 +127,15 @@ crit review docs/plan.md --detach
 crit review docs/plan.md --detach --wait
 ```
 
-This is how the Claude Code skill invokes crit — `--detach --wait` is a single blocking call that opens the TUI next to Claude Code and waits for you to finish reviewing.
+Without tmux, `--detach --wait` creates a signal file and blocks until the TUI removes it on quit.
 
 ### How document review works
 
-1. Claude writes a plan (or you open any markdown file)
+1. Your agent writes a plan (or you open any markdown file)
 2. `crit review <path>` opens the TUI — read through and leave inline comments
 3. Comments are stored as JSON in a local `.crit/` directory (gitignored by default)
-4. `crit status <path>` outputs comments as JSON for Claude (or any tool) to consume
-5. Claude reads the comments, edits the document, and you can re-review
+4. `crit status <path>` outputs comments as JSON for your agent to consume
+5. Your agent reads the comments, edits the document, and you can re-review
 
 ## Keybindings
 
