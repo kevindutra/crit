@@ -18,22 +18,12 @@ go install github.com/kevindutra/crit/cmd/crit@latest
 
 ## Step 1: Launch the TUI
 
-Check if `$TMUX` is set:
-
-If in tmux, run this command with a **timeout of 600000** (10 minutes) since it blocks until the user finishes reviewing:
+Run this command with a **timeout of 600000** (10 minutes) since it blocks until the user finishes reviewing:
 ```bash
 crit review --code --detach --wait
 ```
 
-If not in tmux (command fails with "requires a tmux session"), ask the user to run the TUI manually:
-
-> Please run this in your terminal, review the changes, and let me know when you're done:
->
-> ```
-> crit review --code
-> ```
-
-Wait for the user to confirm before proceeding.
+In tmux this opens a split pane automatically. Without tmux it uses a file-based signal — the user runs `crit review --code` in another terminal.
 
 ## Step 2: Read the comments
 
