@@ -30,12 +30,13 @@ func (c Codex) SetupBasePath(scope SetupScope) string {
 func (c Codex) SetupFiles(scope SetupScope) []SetupFile {
 	if scope == ScopeProject {
 		return []SetupFile{
-			{RelPath: "AGENTS.md", Content: codexAgentsMD, Mode: ModeAppendSection},
+			{RelPath: "AGENTS.md", Content: AgentsSection(), Mode: ModeAppendSection},
 		}
 	}
+	review, codeReview, planReview := RenderSkills(SkillSetupConfig)
 	return []SetupFile{
-		{RelPath: "crit-review/SKILL.md", Content: codexSkillReview},
-		{RelPath: "crit-plan-review/SKILL.md", Content: codexSkillPlanReview},
-		{RelPath: "crit-code-review/SKILL.md", Content: codexSkillCodeReview},
+		{RelPath: "crit-review/SKILL.md", Content: review},
+		{RelPath: "crit-plan-review/SKILL.md", Content: planReview},
+		{RelPath: "crit-code-review/SKILL.md", Content: codeReview},
 	}
 }

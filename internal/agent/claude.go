@@ -28,9 +28,10 @@ func (c ClaudeCode) SetupBasePath(scope SetupScope) string {
 }
 
 func (c ClaudeCode) SetupFiles(scope SetupScope) []SetupFile {
+	review, codeReview, planReview := RenderSkills(ClaudeSetupConfig)
 	return []SetupFile{
-		{RelPath: "crit-review/SKILL.md", Content: claudeSkillReview},
-		{RelPath: "crit-plan-review/SKILL.md", Content: claudeSkillPlanReview},
-		{RelPath: "crit-code-review/SKILL.md", Content: claudeSkillCodeReview},
+		{RelPath: "crit-review/SKILL.md", Content: review},
+		{RelPath: "crit-plan-review/SKILL.md", Content: planReview},
+		{RelPath: "crit-code-review/SKILL.md", Content: codeReview},
 	}
 }

@@ -1,3 +1,5 @@
+//go:generate go run -C ../.. ./cmd/generate-plugin
+
 package agent
 
 // SetupScope controls whether instruction files are installed globally or per-project.

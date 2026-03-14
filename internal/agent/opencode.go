@@ -29,13 +29,14 @@ func (c OpenCode) SetupBasePath(scope SetupScope) string {
 func (c OpenCode) SetupFiles(scope SetupScope) []SetupFile {
 	if scope == ScopeProject {
 		return []SetupFile{
-			{RelPath: "AGENTS.md", Content: opencodeAgentsMD, Mode: ModeAppendSection},
+			{RelPath: "AGENTS.md", Content: AgentsSection(), Mode: ModeAppendSection},
 		}
 	}
+	review, codeReview, planReview := RenderSkills(SkillSetupConfig)
 	return []SetupFile{
-		{RelPath: "crit-review/SKILL.md", Content: opencodeSkillReview},
-		{RelPath: "crit-plan-review/SKILL.md", Content: opencodeSkillPlanReview},
-		{RelPath: "crit-code-review/SKILL.md", Content: opencodeSkillCodeReview},
+		{RelPath: "crit-review/SKILL.md", Content: review},
+		{RelPath: "crit-plan-review/SKILL.md", Content: planReview},
+		{RelPath: "crit-code-review/SKILL.md", Content: codeReview},
 	}
 }
 

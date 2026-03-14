@@ -1,8 +1,3 @@
----
-name: crit-code-review
-description: Review code changes in crit's multi-file TUI with syntax highlighting and diff markers. After the review, address any comments.
----
-
 # Code Review
 
 Review code changes using crit's multi-file code review TUI.
@@ -17,20 +12,12 @@ go install github.com/kevindutra/crit/cmd/crit@latest
 
 ## Step 1: Launch the TUI
 
-Run this command (it blocks until the user finishes reviewing):
+Run this command with a **timeout of 600000** (10 minutes) since it blocks until the user finishes reviewing:
 ```bash
 crit review --code --detach --wait
 ```
 
-If the command exits with an error about tmux, ask the user to run the TUI manually:
-
-> Please run this in your terminal, review the changes, and let me know when you're done:
->
-> ```
-> crit review --code
-> ```
-
-Wait for the user to confirm before proceeding.
+In tmux this opens a split pane automatically. Without tmux it uses a file-based signal — the user runs `crit review --code` in another terminal.
 
 ## Step 2: Read the comments
 
