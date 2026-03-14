@@ -13,6 +13,7 @@ import (
 
 	"github.com/kevindutra/crit/internal/git"
 	"github.com/kevindutra/crit/internal/review"
+	"github.com/kevindutra/crit/internal/signal"
 	"github.com/kevindutra/crit/internal/tui"
 )
 
@@ -148,10 +149,13 @@ func runCodeReview() error {
 }
 
 func runDetachedCodeReview() error {
-	if os.Getenv("TMUX") == "" {
-		return fmt.Errorf("--detach requires a tmux session (TMUX environment variable not set)")
+	if os.Getenv("TMUX") != "" {
+		return runDetachedCodeReviewTmux()
 	}
+	return runDetachedCodeReviewSignal()
+}
 
+func runDetachedCodeReviewTmux() error {
 	tmuxBin, err := lookPath("tmux")
 	if err != nil {
 		return fmt.Errorf("tmux binary not found on PATH: %w", err)
@@ -194,6 +198,24 @@ func runDetachedCodeReview() error {
 	return nil
 }
 
+func runDetachedCodeReviewSignal() error {
+	sig, err := signal.Create()
+	if err != nil {
+		return fmt.Errorf("creating review signal: %w", err)
+	}
+
+	fmt.Fprintln(os.Stderr, "Waiting for review... Run 'crit review --code' in another terminal")
+
+	if reviewWait {
+		if err := sig.WaitForRemoval(500 * time.Millisecond); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stdout, "Code review complete.")
+	}
+
+	return nil
+}
+
 func interactiveFallback() (string, []git.FileChange, error) {
 	// Try common alternatives in order
 	alternatives := []struct {
@@ -219,10 +241,13 @@ func interactiveFallback() (string, []git.FileChange, error) {
 }
 
 func runDetachedReview(filePath string) error {
-	if os.Getenv("TMUX") == "" {
-		return fmt.Errorf("--detach requires a tmux session (TMUX environment variable not set)")
+	if os.Getenv("TMUX") != "" {
+		return runDetachedReviewTmux(filePath)
 	}
+	return runDetachedReviewSignal(filePath)
+}
 
+func runDetachedReviewTmux(filePath string) error {
 	tmuxBin, err := lookPath("tmux")
 	if err != nil {
 		return fmt.Errorf("tmux binary not found on PATH: %w", err)
@@ -257,6 +282,34 @@ func runDetachedReview(filePath string) error {
 		waitCmd := exec.Command(tmuxBin, "wait-for", channel)
 		if err := runCommand(waitCmd); err != nil {
 			return fmt.Errorf("review pane terminated abnormally")
+		}
+
+		state, err := review.Load(absPath)
+		if err != nil {
+			return fmt.Errorf("reading review state: %w", err)
+		}
+		fmt.Fprintf(os.Stdout, "Review complete. %d comments.\n", len(state.Comments))
+	}
+
+	return nil
+}
+
+func runDetachedReviewSignal(filePath string) error {
+	sig, err := signal.Create()
+	if err != nil {
+		return fmt.Errorf("creating review signal: %w", err)
+	}
+
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return fmt.Errorf("resolving absolute path: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Waiting for review... Run 'crit review %s' in another terminal\n", filePath)
+
+	if reviewWait {
+		if err := sig.WaitForRemoval(500 * time.Millisecond); err != nil {
+			return err
 		}
 
 		state, err := review.Load(absPath)

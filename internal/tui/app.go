@@ -19,6 +19,7 @@ import (
 	"github.com/kevindutra/crit/internal/document"
 	gitpkg "github.com/kevindutra/crit/internal/git"
 	"github.com/kevindutra/crit/internal/review"
+	"github.com/kevindutra/crit/internal/signal"
 )
 
 type pane int
@@ -89,7 +90,7 @@ func NewApp(filePath string) AppModel {
 		filePath:        filePath,
 		tabs:            []FileTab{tab},
 		activeTab:       0,
-		detached:        os.Getenv("CRIT_DETACHED") == "1",
+		detached:        isDetached(),
 		agentName:       agentNameFromEnv(),
 		contentViewport: viewport.New(),
 		commentViewport: viewport.New(),
@@ -131,7 +132,7 @@ func NewCodeReviewApp(files []gitpkg.FileChange, ref string) AppModel {
 		tabs:            tabs,
 		activeTab:       0,
 		multiFile:       true,
-		detached:        os.Getenv("CRIT_DETACHED") == "1",
+		detached:        isDetached(),
 		agentName:       agentNameFromEnv(),
 		contentViewport: viewport.New(),
 		commentViewport: viewport.New(),
@@ -145,6 +146,11 @@ func agentNameFromEnv() string {
 		return name
 	}
 	return "Agent"
+}
+
+// isDetached returns true if CRIT_DETACHED=1 is set or a signal file exists.
+func isDetached() bool {
+	return os.Getenv("CRIT_DETACHED") == "1" || signal.Exists()
 }
 
 func (m AppModel) Init() tea.Cmd {
@@ -269,6 +275,10 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.tabs[i].state != nil {
 				review.Save(m.tabs[i].state)
 			}
+		}
+		// Remove signal file to unblock the waiting process
+		if signal.Exists() {
+			signal.Remove()
 		}
 		return m, tea.Quit
 

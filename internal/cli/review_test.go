@@ -50,7 +50,9 @@ func TestShellEscape(t *testing.T) {
 	}
 }
 
-func TestDetachRequiresTmux(t *testing.T) {
+// TestDetachWithoutTmuxFallsBackToSignal verifies that --detach without tmux
+// creates a signal file instead of erroring.
+func TestDetachWithoutTmuxFallsBackToSignal(t *testing.T) {
 	tmp, err := os.CreateTemp("", "crit-test-*.md")
 	if err != nil {
 		t.Fatal(err)
@@ -58,38 +60,57 @@ func TestDetachRequiresTmux(t *testing.T) {
 	defer os.Remove(tmp.Name())
 	tmp.Close()
 
-	orig := os.Getenv("TMUX")
+	origTmux := os.Getenv("TMUX")
 	os.Setenv("TMUX", "")
-	defer os.Setenv("TMUX", orig)
+	defer os.Setenv("TMUX", origTmux)
+
+	// Don't set --wait so runDetachedReviewSignal returns immediately
+	origWait := reviewWait
+	reviewWait = false
+	defer func() { reviewWait = origWait }()
 
 	err = runDetachedReview(tmp.Name())
-	if err == nil {
-		t.Fatal("expected error when TMUX is not set")
+	if err != nil {
+		t.Fatalf("expected no error (file signal fallback), got: %s", err)
 	}
-	if !strings.Contains(err.Error(), "requires a tmux session") {
-		t.Errorf("expected 'requires a tmux session' error, got: %s", err)
+
+	// Clean up signal file
+	signalPath := filepath.Join(".crit", "review.signal")
+	defer os.Remove(signalPath)
+
+	// Signal file should have been created
+	if _, err := os.Stat(signalPath); os.IsNotExist(err) {
+		t.Error("expected signal file to be created at .crit/review.signal")
 	}
 }
 
-func TestCodeReviewDetachRequiresTmux(t *testing.T) {
-	orig := os.Getenv("TMUX")
+// TestCodeReviewDetachWithoutTmuxFallsBackToSignal verifies the same
+// file-signal fallback for code review mode.
+func TestCodeReviewDetachWithoutTmuxFallsBackToSignal(t *testing.T) {
+	origTmux := os.Getenv("TMUX")
 	os.Setenv("TMUX", "")
-	defer os.Setenv("TMUX", orig)
+	defer os.Setenv("TMUX", origTmux)
 
-	// Simulate --detach --code flags
 	reviewDetach = true
 	reviewCode = true
+	reviewWait = false
 	defer func() {
 		reviewDetach = false
 		reviewCode = false
+		reviewWait = false
 	}()
 
 	err := runCodeReview()
-	if err == nil {
-		t.Fatal("expected error when TMUX is not set")
+	if err != nil {
+		t.Fatalf("expected no error (file signal fallback), got: %s", err)
 	}
-	if !strings.Contains(err.Error(), "requires a tmux session") {
-		t.Errorf("expected 'requires a tmux session' error, got: %s", err)
+
+	// Clean up signal file
+	signalPath := filepath.Join(".crit", "review.signal")
+	defer os.Remove(signalPath)
+
+	if _, err := os.Stat(signalPath); os.IsNotExist(err) {
+		t.Error("expected signal file to be created at .crit/review.signal")
 	}
 }
 
