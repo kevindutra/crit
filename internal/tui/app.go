@@ -55,7 +55,8 @@ type AppModel struct {
 	// Single-file mode (legacy)
 	filePath string
 
-	detached bool
+	detached  bool
+	agentName string
 
 	contentViewport viewport.Model
 	commentViewport viewport.Model
@@ -89,6 +90,7 @@ func NewApp(filePath string) AppModel {
 		tabs:            []FileTab{tab},
 		activeTab:       0,
 		detached:        os.Getenv("CRIT_DETACHED") == "1",
+		agentName:       agentNameFromEnv(),
 		contentViewport: viewport.New(),
 		commentViewport: viewport.New(),
 		modalTextarea:   ta,
@@ -130,10 +132,19 @@ func NewCodeReviewApp(files []gitpkg.FileChange, ref string) AppModel {
 		activeTab:       0,
 		multiFile:       true,
 		detached:        os.Getenv("CRIT_DETACHED") == "1",
+		agentName:       agentNameFromEnv(),
 		contentViewport: viewport.New(),
 		commentViewport: viewport.New(),
 		modalTextarea:   ta,
 	}
+}
+
+// agentNameFromEnv reads the CRIT_AGENT_NAME env var, defaulting to "Agent".
+func agentNameFromEnv() string {
+	if name := os.Getenv("CRIT_AGENT_NAME"); name != "" {
+		return name
+	}
+	return "Agent"
 }
 
 func (m AppModel) Init() tea.Cmd {
@@ -1575,8 +1586,9 @@ func (m AppModel) View() tea.View {
 	}
 	var header string
 	if m.detached {
-		claudeBanner := claudeStatusBar.Width(m.width).Render(" Claude Code is paused — review the document, then press q to submit")
-		header = claudeBanner + "\n" + headerStyle.Width(m.width).Render(headerContent)
+		bannerText := fmt.Sprintf(" %s is paused — review the document, then press q to submit", m.agentName)
+		agentBanner := agentStatusBar.Width(m.width).Render(bannerText)
+		header = agentBanner + "\n" + headerStyle.Width(m.width).Render(headerContent)
 	} else {
 		header = headerStyle.Width(m.width).Render(headerContent)
 	}
