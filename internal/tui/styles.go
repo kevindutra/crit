@@ -34,7 +34,7 @@ var (
 			Background(accent).
 			Padding(0, 1)
 
-	claudeStatusBar = lipgloss.NewStyle().
+	pausedStatusBar = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.BrightWhite).
 				Background(lipgloss.Red).

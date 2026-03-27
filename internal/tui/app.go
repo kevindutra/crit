@@ -1575,8 +1575,8 @@ func (m AppModel) View() tea.View {
 	}
 	var header string
 	if m.detached {
-		claudeBanner := claudeStatusBar.Width(m.width).Render(" Claude Code is paused — review the document, then press q to submit")
-		header = claudeBanner + "\n" + headerStyle.Width(m.width).Render(headerContent)
+		pausedBanner := pausedStatusBar.Width(m.width).Render(" AI agent is paused — review the document, then press q to submit")
+		header = pausedBanner + "\n" + headerStyle.Width(m.width).Render(headerContent)
 	} else {
 		header = headerStyle.Width(m.width).Render(headerContent)
 	}
