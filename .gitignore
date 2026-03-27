@@ -3,3 +3,6 @@
 
 # Local Claude Code config
 .claude/
+
+# Local Gemini config
+.gemini/

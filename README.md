@@ -41,12 +41,23 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 
 If you prefer not to use the plugin, you can install the skill directly:
 
+#### Claude Code
+
 ```bash
-crit setup-claude          # Install globally (~/.claude/skills/)
+crit setup-claude           # Install globally (~/.claude/skills/)
 crit setup-claude --project # Install for current project only
 ```
 
 Then use `/crit-review <path>` in Claude Code for document reviews, or `/crit-code-review` for multi-file code reviews.
+
+#### Gemini CLI
+
+```bash
+crit setup-gemini           # Install globally (~/.gemini/)
+crit setup-gemini --project # Install for current project only
+```
+
+Then use `@crit` to start a review in Gemini CLI.
 
 ## Requirements
 
