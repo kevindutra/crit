@@ -56,13 +56,28 @@ For each comment in the `comments` array:
 
 After addressing ALL comments, summarize what you changed.
 
-## Step 4: Re-review (optional)
+## Step 4: Prompt for next action
 
-After making changes, ask the user if they want to re-review:
+After addressing all comments and summarizing the changes, present the user with exactly these three options:
 
-> "I've addressed all comments. Want to review the changes? I'll open crit again."
+> I've addressed all your comments. What would you like to do next?
+>
+> **1. Re-review** — open crit again to review the document
+> **2. Continue** — move on
+> **3.** Type anything to give me additional instructions or context
 
-If yes, go back to Step 1. If no, done.
+If the user chooses **1**, ask:
+
+> Keep existing comments or clear them before re-reviewing?
+
+If clear, run:
+```bash
+crit clear $ARGUMENTS
+```
+Then go back to Step 1. If keep, go back to Step 1 directly.
+
+If the user chooses **2**, done.
+If the user types anything else, treat it as free-form input and respond accordingly — then present the three options again until the user picks 1 or 2.
 
 ## Important notes
 
