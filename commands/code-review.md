@@ -64,13 +64,33 @@ For each file in the `files` array, for each comment:
 
 After addressing ALL comments across ALL files, summarize what you changed.
 
-## Step 4: Re-review (optional)
+## Step 4: Prompt for next action
 
-After making changes, ask the user if they want to re-review:
+After addressing all comments and summarizing the changes, use the `AskUserQuestion` tool to ask:
 
-> "I've addressed all comments. Want to review the changes? I'll open crit again."
+- **Question:** "I've addressed all your comments. What would you like to do next?"
+- **Header:** "Next action"
+- **Options:**
+  - **Re-review** — Open crit again to review the changes
+  - **Continue** — Done, move on
 
-If yes, go back to Step 1. If no, done.
+If the user provides free-form input (via the "Other" option), respond accordingly, then ask again with `AskUserQuestion` until they pick Re-review or Continue.
+
+If the user chooses **Re-review**, use `AskUserQuestion` again to ask:
+
+- **Question:** "Keep existing comments or clear them before re-reviewing?"
+- **Header:** "Comments"
+- **Options:**
+  - **Keep** — Keep existing comments visible during re-review
+  - **Clear** — Remove all comments before re-reviewing
+
+If clear, run:
+```bash
+crit clear --code
+```
+Then go back to Step 1. If keep, go back to Step 1 directly.
+
+If the user chooses **Continue**, done.
 
 ## Important notes
 

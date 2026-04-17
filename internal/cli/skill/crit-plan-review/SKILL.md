@@ -58,17 +58,23 @@ After addressing ALL comments, summarize what you changed.
 
 ## Step 4: Prompt for next action
 
-After addressing all comments and summarizing the changes, present the user with exactly these three options:
+After addressing all comments and summarizing the changes, use the `AskUserQuestion` tool to ask:
 
-> I've addressed all your comments. What would you like to do next?
->
-> **1. Re-review** — open crit again to review the document
-> **2. Continue** — move on
-> **3.** Type anything to give me additional instructions or context
+- **Question:** "I've addressed all your comments. What would you like to do next?"
+- **Header:** "Next action"
+- **Options:**
+  - **Re-review** — Open crit again to review the document
+  - **Continue** — Done, move on
 
-If the user chooses **1**, ask:
+If the user provides free-form input (via the "Other" option), respond accordingly, then ask again with `AskUserQuestion` until they pick Re-review or Continue.
 
-> Keep existing comments or clear them before re-reviewing?
+If the user chooses **Re-review**, use `AskUserQuestion` again to ask:
+
+- **Question:** "Keep existing comments or clear them before re-reviewing?"
+- **Header:** "Comments"
+- **Options:**
+  - **Keep** — Keep existing comments visible during re-review
+  - **Clear** — Remove all comments before re-reviewing
 
 If clear, run:
 ```bash
@@ -76,8 +82,7 @@ crit clear $ARGUMENTS
 ```
 Then go back to Step 1. If keep, go back to Step 1 directly.
 
-If the user chooses **2**, done.
-If the user types anything else, treat it as free-form input and respond accordingly — then present the three options again until the user picks 1 or 2.
+If the user chooses **Continue**, done.
 
 ## Important notes
 
