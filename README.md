@@ -122,24 +122,24 @@ This is how the Claude Code skill invokes crit — `--detach --wait` is a single
 
 ## Keybindings
 
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Scroll down / up |
-| `ctrl+d` / `ctrl+u` | Half page down / up |
-| `g` / `G` | Jump to top / bottom |
-| `enter` | Add comment at current line |
-| `v` | Visual select mode (multi-line comments) |
-| `s` | Toggle comment sidebar |
-| `[` / `]` | Jump to prev / next comment |
-| `q` | Save & quit |
+| Key                                   | Action                                   |
+|---------------------------------------|------------------------------------------|
+| `j` / `k`                             | Scroll down / up                         |
+| `ctrl+d` / `ctrl+u` / `PgDn` / `PgUp` | Half page down / up                      |
+| `g` / `G` / `Home` / `End`            | Jump to top / bottom                     |
+| `enter`                               | Add comment at current line              |
+| `v`                                   | Visual select mode (multi-line comments) |
+| `s`                                   | Toggle comment sidebar                   |
+| `[` / `]`                             | Jump to prev / next comment              |
+| `q`                                   | Save & quit                              |
 
 **Code review only:**
 
-| Key | Action |
-|-----|--------|
-| `tab` / `shift+tab` | Next / previous file tab |
-| `n` / `N` | Jump to next / previous change |
-| `/` | Search file tabs |
+| Key                 | Action                         |
+|---------------------|--------------------------------|
+| `tab` / `shift+tab` | Next / previous file tab       |
+| `n` / `N`           | Jump to next / previous change |
+| `/`                 | Search file tabs               |
 
 ## Scriptable CLI
 
