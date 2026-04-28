@@ -57,8 +57,8 @@ func TestStatusSingleFileShape(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		statusCmd.SetArgs([]string{docPath})
-		if err := statusCmd.Execute(); err != nil {
+		rootCmd.SetArgs([]string{"status", docPath})
+		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("status: %v", err)
 		}
 	})
@@ -115,8 +115,8 @@ func TestStatusCodeAggregateShape(t *testing.T) {
 
 	defer func() { statusCode = false }()
 	out := captureStdout(t, func() {
-		statusCmd.SetArgs([]string{"--code"})
-		if err := statusCmd.Execute(); err != nil {
+		rootCmd.SetArgs([]string{"status", "--code"})
+		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("status --code: %v", err)
 		}
 	})
