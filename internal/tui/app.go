@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -65,7 +66,55 @@ type AppModel struct {
 	editingID  string // ID of the comment being edited
 	modalFocus int    // 0=textarea, 1=save button, 2=cancel button, 3=delete button (edit modal only)
 
+	// Session-only: when false, resolved comments are filtered out of all
+	// rendering and navigation. Resets to false on every TUI launch.
+	showResolved bool
+
 	err error
+}
+
+// visibleComments returns the slice of comments that should participate in
+// rendering and navigation given the current showResolved toggle. Filtering
+// happens here so every consumer (sidebar, annotations, scroll math, [/]
+// navigation) sees the same view.
+func (m *AppModel) visibleComments(t *FileTab) []review.Comment {
+	if t.state == nil {
+		return nil
+	}
+	if m.showResolved {
+		return t.state.Comments
+	}
+	out := make([]review.Comment, 0, len(t.state.Comments))
+	for _, c := range t.state.Comments {
+		if !c.Resolved {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// commentCounts returns the unresolved (new) and resolved totals for a tab,
+// regardless of the showResolved toggle.
+func (m *AppModel) commentCounts(t *FileTab) (newCount, resolvedCount int) {
+	if t.state == nil {
+		return 0, 0
+	}
+	return t.state.Counts()
+}
+
+// formatCommentSummary renders the count fragment used in headers:
+//   - "N new"               when no resolved comments exist
+//   - "N new · M hidden"    when resolved exist but are filtered out
+//   - "N new · M resolved"  when the user has toggled resolved visible
+func (m *AppModel) formatCommentSummary(t *FileTab) string {
+	newCount, resolvedCount := m.commentCounts(t)
+	if resolvedCount == 0 {
+		return fmt.Sprintf("%d new", newCount)
+	}
+	if m.showResolved {
+		return fmt.Sprintf("%d new · %d resolved", newCount, resolvedCount)
+	}
+	return fmt.Sprintf("%d new · %d hidden", newCount, resolvedCount)
 }
 
 // tab returns the active FileTab. Panics if no tabs exist.
@@ -187,7 +236,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case docRenderedMsg:
-		// Load documents and existing review state for each tab
+		// Pre-existing comments load as resolved so they're hidden by default
+		// and excluded from `crit status`; persisting the migration keeps
+		// disk and in-memory state in sync.
 		for i := range m.tabs {
 			t := &m.tabs[i]
 			if t.isBinary || t.isDeleted {
@@ -199,7 +250,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			doc, _ := document.Load(t.path)
 			t.doc = doc
-			// Load existing review state (returns empty state if none exists)
 			state, err := review.Load(t.path)
 			if err != nil {
 				state = &review.ReviewState{
@@ -208,6 +258,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			t.state = state
+			if state.MarkAllResolved() {
+				if err := review.Save(state); err != nil {
+					m.err = fmt.Errorf("migrating resolved comments for %s: %w", t.path, err)
+					return m, nil
+				}
+			}
 			t.ensureHighlightCache()
 		}
 
@@ -293,6 +349,49 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.rebuildContent()
 			return m, nil
 		}
+
+	case key.Matches(msg, keys.ToggleResolved):
+		// Capture focused IDs against the OLD filter, flip, then restore by ID
+		// so a same-line resolved annotation appearing/disappearing doesn't
+		// silently shift focus to a different comment that landed at the same
+		// index.
+		var focusedAnnoID, focusedSidebarID string
+		if t.cursorOnAnnotation {
+			anns := m.annotationsAfterLine(t.cursorLine)
+			if t.cursorAnnoIdx < len(anns) {
+				focusedAnnoID = anns[t.cursorAnnoIdx].id
+			}
+		}
+		if t.sidebarCursor >= 0 && t.sidebarCursor < len(t.sidebarItems) {
+			focusedSidebarID = t.sidebarItems[t.sidebarCursor].id
+		}
+
+		m.showResolved = !m.showResolved
+		m.updateCommentSidebar()
+
+		if focusedAnnoID != "" {
+			anns := m.annotationsAfterLine(t.cursorLine)
+			idx := slices.IndexFunc(anns, func(a annotation) bool { return a.id == focusedAnnoID })
+			if idx >= 0 {
+				t.cursorOnAnnotation = true
+				t.cursorAnnoIdx = idx
+			} else {
+				t.cursorOnAnnotation = false
+				t.cursorAnnoIdx = 0
+			}
+		}
+		if focusedSidebarID != "" {
+			idx := slices.IndexFunc(t.sidebarItems, func(s sidebarItem) bool { return s.id == focusedSidebarID })
+			if idx >= 0 {
+				t.sidebarCursor = idx
+			} else {
+				t.sidebarCursor = 0
+			}
+		}
+
+		m.rebuildContent()
+		m.scrollToCursor()
+		return m, nil
 	}
 
 	// Tab switching (multi-file mode)
@@ -407,17 +506,15 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			t.cursorLine = t.doc.LineCount()
 			moved = true
 		case key.Matches(msg, keys.NextComment):
-			if t.state != nil && len(t.state.Comments) > 0 {
+			visible := m.visibleComments(t)
+			if len(visible) > 0 {
 				type target struct {
 					endLine int
 					idx     int
 				}
 				var best *target
-				for _, c := range t.state.Comments {
-					endAt := c.Line
-					if c.EndLine > 0 {
-						endAt = c.EndLine
-					}
+				for _, c := range visible {
+					endAt := c.EndAt()
 					if endAt > t.cursorLine || (endAt == t.cursorLine && !t.cursorOnAnnotation) {
 						if best == nil || endAt < best.endLine {
 							best = &target{endLine: endAt, idx: 0}
@@ -425,11 +522,8 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 					}
 				}
 				if best == nil {
-					for _, c := range t.state.Comments {
-						endAt := c.Line
-						if c.EndLine > 0 {
-							endAt = c.EndLine
-						}
+					for _, c := range visible {
+						endAt := c.EndAt()
 						if best == nil || endAt < best.endLine {
 							best = &target{endLine: endAt, idx: 0}
 						}
@@ -443,17 +537,15 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case key.Matches(msg, keys.PrevComment):
-			if t.state != nil && len(t.state.Comments) > 0 {
+			visible := m.visibleComments(t)
+			if len(visible) > 0 {
 				type target struct {
 					endLine int
 					idx     int
 				}
 				var best *target
-				for _, c := range t.state.Comments {
-					endAt := c.Line
-					if c.EndLine > 0 {
-						endAt = c.EndLine
-					}
+				for _, c := range visible {
+					endAt := c.EndAt()
 					if endAt < t.cursorLine || (endAt == t.cursorLine && !t.cursorOnAnnotation) {
 						if best == nil || endAt > best.endLine {
 							best = &target{endLine: endAt, idx: 0}
@@ -461,11 +553,8 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 					}
 				}
 				if best == nil {
-					for _, c := range t.state.Comments {
-						endAt := c.Line
-						if c.EndLine > 0 {
-							endAt = c.EndLine
-						}
+					for _, c := range visible {
+						endAt := c.EndAt()
 						if best == nil || endAt > best.endLine {
 							best = &target{endLine: endAt, idx: 0}
 						}
@@ -523,6 +612,9 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				anns := m.annotationsAfterLine(t.cursorLine)
 				if t.cursorAnnoIdx < len(anns) {
 					ann := anns[t.cursorAnnoIdx]
+					if ann.resolved {
+						return m, nil
+					}
 					m.editingID = ann.id
 					m.modal = editModal
 					m.modalFocus = 0
@@ -582,6 +674,9 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Enter to edit selected annotation
 		if key.Matches(msg, keys.Confirm) {
 			sel := t.sidebarItems[t.sidebarCursor]
+			if sel.resolved {
+				return m, nil
+			}
 			m.editingID = sel.id
 			m.modal = editModal
 			m.modalFocus = 0
@@ -805,19 +900,13 @@ func (m *AppModel) recalculateLayout() {
 // (keyed by their endLine).
 func (m *AppModel) annotationsAfterLine(lineNum int) []annotation {
 	t := m.tab()
-	if t.state == nil {
-		return nil
-	}
 	var anns []annotation
-	for _, c := range t.state.Comments {
-		endAt := c.Line
-		if c.EndLine > 0 {
-			endAt = c.EndLine
-		}
-		if endAt == lineNum {
+	for _, c := range m.visibleComments(t) {
+		if c.EndAt() == lineNum {
 			anns = append(anns, annotation{
 				id: c.ID, body: c.Body,
 				line: c.Line, endLine: c.EndLine,
+				resolved: c.Resolved,
 			})
 		}
 	}
@@ -826,18 +915,20 @@ func (m *AppModel) annotationsAfterLine(lineNum int) []annotation {
 
 // sidebarItem represents a comment in the sidebar list.
 type sidebarItem struct {
-	id      string
-	line    int
-	endLine int
-	body    string
+	id       string
+	line     int
+	endLine  int
+	body     string
+	resolved bool
 }
 
 // annotation represents an inline comment to render.
 type annotation struct {
-	id      string
-	body    string
-	line    int
-	endLine int
+	id       string
+	body     string
+	line     int
+	endLine  int
+	resolved bool
 }
 
 // rebuildContent renders the document line-by-line with cursor, selection,
@@ -859,32 +950,23 @@ func (m *AppModel) rebuildContent() {
 		return
 	}
 
+	visible := m.visibleComments(t)
+
 	// Collect annotations keyed by the line they appear AFTER
 	annosByEndLine := make(map[int][]annotation)
-	if t.state != nil {
-		for _, c := range t.state.Comments {
-			endAt := c.Line
-			if c.EndLine > 0 {
-				endAt = c.EndLine
-			}
-			annosByEndLine[endAt] = append(annosByEndLine[endAt], annotation{
-				id: c.ID, body: c.Body,
-				line: c.Line, endLine: c.EndLine,
-			})
-		}
+	for _, c := range visible {
+		annosByEndLine[c.EndAt()] = append(annosByEndLine[c.EndAt()], annotation{
+			id: c.ID, body: c.Body,
+			line: c.Line, endLine: c.EndLine,
+			resolved: c.Resolved,
+		})
 	}
 
 	// Count how many comments cover each line (for overlap detection)
 	annotatedLines := make(map[int]int)
-	if t.state != nil {
-		for _, c := range t.state.Comments {
-			end := c.Line
-			if c.EndLine > 0 {
-				end = c.EndLine
-			}
-			for l := c.Line; l <= end; l++ {
-				annotatedLines[l]++
-			}
+	for _, c := range visible {
+		for l := c.Line; l <= c.EndAt(); l++ {
+			annotatedLines[l]++
 		}
 	}
 
@@ -1087,12 +1169,20 @@ func (m *AppModel) renderAnnotationBox(ann annotation, maxWidth int, focused boo
 		lineLabel = fmt.Sprintf("L%d", ann.line)
 	}
 
+	labelStyle := inlineLabelComment
+	boxStyle := inlineCommentBox
+	labelText := "comment"
+	if ann.resolved {
+		labelStyle = resolvedInlineLabelComment
+		boxStyle = resolvedInlineCommentBox
+		labelText = "resolved"
+	}
+
 	var boxContent strings.Builder
-	label := inlineLabelComment.Render("comment")
+	label := labelStyle.Render(labelText)
 	lineRef := commentLineStyle.Render(lineLabel)
 	boxContent.WriteString(fmt.Sprintf("%s %s\n", label, lineRef))
 	boxContent.WriteString(clampLines(ann.body, 3))
-	boxStyle := inlineCommentBox
 
 	if focused {
 		boxStyle = boxStyle.BorderForeground(warning)
@@ -1448,15 +1538,9 @@ func (m *AppModel) extraLinesPerDocLine() map[int]int {
 		}
 	}
 
-	if t.state != nil {
-		for _, c := range t.state.Comments {
-			endAt := c.Line
-			if c.EndLine > 0 {
-				endAt = c.EndLine
-			}
-			bodyLines := strings.Count(c.Body, "\n") + 1
-			counts[endAt] += bodyLines + 3
-		}
+	for _, c := range m.visibleComments(t) {
+		bodyLines := strings.Count(c.Body, "\n") + 1
+		counts[c.EndAt()] += bodyLines + 3
 	}
 
 	// Account for deleted lines rendered before each doc line
@@ -1480,10 +1564,11 @@ func (m *AppModel) updateCommentSidebar() {
 	}
 
 	t.sidebarItems = nil
-	for _, c := range t.state.Comments {
+	for _, c := range m.visibleComments(t) {
 		t.sidebarItems = append(t.sidebarItems, sidebarItem{
 			id: c.ID, line: c.Line, endLine: c.EndLine,
-			body: c.Body,
+			body:     c.Body,
+			resolved: c.Resolved,
 		})
 	}
 	sort.Slice(t.sidebarItems, func(i, j int) bool { return t.sidebarItems[i].line < t.sidebarItems[j].line })
@@ -1498,7 +1583,12 @@ func (m *AppModel) updateCommentSidebar() {
 	var b strings.Builder
 
 	if len(t.sidebarItems) == 0 {
-		b.WriteString(commentStyle.Render("No comments yet.\n\nPress enter to comment.\n\nUse 'v' to select\nmultiple lines first."))
+		_, resolvedCount := m.commentCounts(t)
+		if !m.showResolved && resolvedCount > 0 {
+			b.WriteString(commentStyle.Render("No new comments.\n\nPress 'a' to show resolved."))
+		} else {
+			b.WriteString(commentStyle.Render("No comments yet.\n\nPress enter to comment.\n\nUse 'v' to select\nmultiple lines first."))
+		}
 		m.commentViewport.SetContent(b.String())
 		return
 	}
@@ -1524,12 +1614,16 @@ func (m *AppModel) updateCommentSidebar() {
 
 		clamped := clampLines(it.body, 3)
 		bodyLines := strings.Split(clamped, "\n")
+		bodyStyle := commentStyle
+		if it.resolved {
+			bodyStyle = resolvedCommentStyle
+		}
 		for i, bl := range bodyLines {
 			styled := bl
 			if isSelected {
 				styled = sidebarSelectedText.Render(bl)
 			} else {
-				styled = commentStyle.Render(bl)
+				styled = bodyStyle.Render(bl)
 			}
 			b.WriteString(" " + styled)
 			if i < len(bodyLines)-1 {
@@ -1558,7 +1652,7 @@ func (m AppModel) View() tea.View {
 	t := m.tab()
 
 	// Header
-	commentCount := len(t.state.Comments)
+	commentSummary := m.formatCommentSummary(t)
 	displayPath := t.path
 	if m.filePath != "" {
 		displayPath = m.filePath
@@ -1569,9 +1663,9 @@ func (m AppModel) View() tea.View {
 		selLabel := visualModeIndicator.Render("VISUAL")
 		headerContent = fmt.Sprintf(" Crit: %s  %s L%d-%d", displayPath, selLabel, start, end)
 	} else if t.doc != nil {
-		headerContent = fmt.Sprintf(" Crit: %s  %d comments  L%d/%d", displayPath, commentCount, t.cursorLine, t.doc.LineCount())
+		headerContent = fmt.Sprintf(" Crit: %s  %s  L%d/%d", displayPath, commentSummary, t.cursorLine, t.doc.LineCount())
 	} else {
-		headerContent = fmt.Sprintf(" Crit: %s  %d comments", displayPath, commentCount)
+		headerContent = fmt.Sprintf(" Crit: %s  %s", displayPath, commentSummary)
 	}
 	var header string
 	if m.detached {
@@ -1607,7 +1701,7 @@ func (m AppModel) View() tea.View {
 		sidebarBorderColor = accent
 	}
 	sidebarBorder := lipgloss.Border{Left: "│"}
-	commentHeader := lipgloss.NewStyle().Bold(true).Foreground(accent).Render(fmt.Sprintf("Comments (%d)", commentCount))
+	commentHeader := lipgloss.NewStyle().Bold(true).Foreground(accent).Render(fmt.Sprintf("Comments (%s)", commentSummary))
 	commentBox := lipgloss.NewStyle().
 		Border(sidebarBorder, false, false, false, true).
 		BorderForeground(sidebarBorderColor).
@@ -1837,6 +1931,7 @@ func (m AppModel) renderFooter() string {
 			k("[/]", "prev/next comment"),
 			k("shift+↑↓", "page"),
 			k("s", "sidebar"),
+			k("a", "toggle resolved"),
 			k("v", "select"),
 			k("enter", "comment"),
 			k("q", "save & quit"),

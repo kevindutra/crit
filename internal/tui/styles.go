@@ -110,6 +110,12 @@ var (
 				Foreground(lipgloss.Blue).
 				Bold(true)
 
+	// Resolved-comment variants: muted so the eye treats them as background
+	// when the user has toggled them visible.
+	resolvedInlineCommentBox   = inlineCommentBox.BorderForeground(subtle).Foreground(subtle)
+	resolvedInlineLabelComment = inlineLabelComment.Foreground(subtle)
+	resolvedCommentStyle       = commentStyle.Foreground(subtle)
+
 	// Annotation gutter marker
 	annotationGutter = lipgloss.NewStyle().
 				Foreground(lipgloss.BrightCyan).

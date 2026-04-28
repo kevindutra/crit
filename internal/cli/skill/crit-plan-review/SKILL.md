@@ -44,11 +44,11 @@ After the user confirms the review is complete, read the review comments:
 crit status $ARGUMENTS
 ```
 
-This outputs JSON with the file path and comments array.
+This outputs JSON with the file path and a `comments` array. If the user reviewed the document in a prior session, a `resolved_comments` array may also appear — those are already-addressed comments included for context only and **must not** drive further edits.
 
 ## Step 3: Address comments
 
-For each comment in the `comments` array:
+For each comment in the **`comments`** array (ignore `resolved_comments`):
 
 1. Read the `line` number and `content_snippet` to locate where in the document the comment applies
 2. Read the `body` for what the reviewer wants changed

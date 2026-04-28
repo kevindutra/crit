@@ -142,4 +142,82 @@ func TestMigrationFromJSON(t *testing.T) {
 	if _, err := os.Stat(yamlPath); os.IsNotExist(err) {
 		t.Error("YAML file should exist after migration")
 	}
+
+	if loaded.Comments[0].Resolved {
+		t.Error("legacy JSON comment should default to Resolved=false, got true")
+	}
+}
+
+func TestResolvedRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	docPath := filepath.Join(dir, "plan.md")
+	os.WriteFile(docPath, []byte("# Test\n"), 0644)
+
+	document.EnsureDirs()
+
+	state, _ := Load(docPath)
+	state.AddComment(Comment{ID: "r1", Line: 1, Body: "resolved", Resolved: true})
+	state.AddComment(Comment{ID: "r2", Line: 2, Body: "open"})
+	if err := Save(state); err != nil {
+		t.Fatalf("saving: %v", err)
+	}
+
+	loaded, err := Load(docPath)
+	if err != nil {
+		t.Fatalf("reloading: %v", err)
+	}
+	if len(loaded.Comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(loaded.Comments))
+	}
+	byID := map[string]Comment{}
+	for _, c := range loaded.Comments {
+		byID[c.ID] = c
+	}
+	if !byID["r1"].Resolved {
+		t.Error("r1 should be Resolved=true after round-trip")
+	}
+	if byID["r2"].Resolved {
+		t.Error("r2 should be Resolved=false after round-trip")
+	}
+}
+
+func TestLegacyYAMLDefaultsResolvedFalse(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	docPath := filepath.Join(dir, "plan.md")
+	os.WriteFile(docPath, []byte("# Test\n"), 0644)
+
+	document.EnsureDirs()
+
+	// Hand-write a YAML file with no `resolved:` field.
+	yamlPath := document.ReviewPath(docPath)
+	legacyYAML := `file: ` + docPath + `
+comments:
+  - id: legacy
+    line: 1
+    content_snippet: ""
+    body: old
+    created_at: 0001-01-01T00:00:00Z
+`
+	if err := os.WriteFile(yamlPath, []byte(legacyYAML), 0644); err != nil {
+		t.Fatalf("seeding legacy YAML: %v", err)
+	}
+
+	loaded, err := Load(docPath)
+	if err != nil {
+		t.Fatalf("loading legacy YAML: %v", err)
+	}
+	if len(loaded.Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(loaded.Comments))
+	}
+	if loaded.Comments[0].Resolved {
+		t.Error("legacy YAML comment with no `resolved` field should default to false")
+	}
 }

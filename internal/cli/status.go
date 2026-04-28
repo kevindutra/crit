@@ -32,9 +32,16 @@ var statusCmd = &cobra.Command{
 			return fmt.Errorf("loading review state: %w", err)
 		}
 
+		unresolved, resolved := review.Partition(state)
+		out := review.CodeFileStatus{
+			File:             state.File,
+			Comments:         unresolved,
+			ResolvedComments: resolved,
+		}
+
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
-		if err := encoder.Encode(state); err != nil {
+		if err := encoder.Encode(out); err != nil {
 			return fmt.Errorf("encoding JSON: %w", err)
 		}
 

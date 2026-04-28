@@ -62,17 +62,34 @@ func LoadSession() (*CodeReviewSession, error) {
 
 // CodeFileStatus represents a single file's review status in aggregate output.
 type CodeFileStatus struct {
-	File     string    `json:"file"`
-	Comments []Comment `json:"comments"`
+	File             string    `json:"file"`
+	Comments         []Comment `json:"comments"`
+	ResolvedComments []Comment `json:"resolved_comments,omitempty"`
 }
 
 // CodeReviewStatus is the aggregate status for all files in a code review.
 type CodeReviewStatus struct {
-	Files         []CodeFileStatus `json:"files"`
-	TotalComments int              `json:"total_comments"`
+	Files                 []CodeFileStatus `json:"files"`
+	TotalComments         int              `json:"total_comments"`
+	TotalResolvedComments int              `json:"total_resolved,omitempty"`
+	LoadErrors            []string         `json:"load_errors,omitempty"`
 }
 
-// AggregateStatus loads ReviewState for all files in the current session.
+// Partition splits a ReviewState's comments into unresolved and resolved
+// slices based on the Resolved flag.
+func Partition(state *ReviewState) (unresolved, resolved []Comment) {
+	for _, c := range state.Comments {
+		if c.Resolved {
+			resolved = append(resolved, c)
+		} else {
+			unresolved = append(unresolved, c)
+		}
+	}
+	return unresolved, resolved
+}
+
+// AggregateStatus loads ReviewState for all files in the current session and
+// partitions each into unresolved/resolved comments.
 func AggregateStatus() (*CodeReviewStatus, error) {
 	session, err := LoadSession()
 	if err != nil {
@@ -83,14 +100,17 @@ func AggregateStatus() (*CodeReviewStatus, error) {
 	for _, file := range session.Files {
 		state, err := Load(file)
 		if err != nil {
-			// Skip files that can't be loaded
+			result.LoadErrors = append(result.LoadErrors, fmt.Sprintf("%s: %v", file, err))
 			continue
 		}
+		unresolved, resolved := Partition(state)
 		result.Files = append(result.Files, CodeFileStatus{
-			File:     file,
-			Comments: state.Comments,
+			File:             file,
+			Comments:         unresolved,
+			ResolvedComments: resolved,
 		})
-		result.TotalComments += len(state.Comments)
+		result.TotalComments += len(unresolved)
+		result.TotalResolvedComments += len(resolved)
 	}
 
 	return result, nil

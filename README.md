@@ -86,9 +86,11 @@ crit status --code
 
 1. Run `crit review --code` — crit detects changed files and opens the tabbed TUI
 2. Navigate between files and leave inline comments on the changes
-3. Quit the TUI — comments are saved to `.crit/`
-4. `crit status --code` outputs all comments across files as JSON
+3. Quit the TUI — comments are saved under `.crit/` as YAML review files
+4. `crit status --code` outputs all new comments across files as JSON
 5. Claude (or any tool) reads the comments and edits the files
+
+On re-review, prior comments are auto-marked **resolved** — hidden in the TUI by default (press `a` to toggle), and split out as `resolved_comments` in `crit status` output so consumers only act on new feedback.
 
 ## Document Review (single file)
 
@@ -116,9 +118,11 @@ This is how the Claude Code skill invokes crit — `--detach --wait` is a single
 
 1. Claude writes a plan (or you open any markdown file)
 2. `crit review <path>` opens the TUI — read through and leave inline comments
-3. Comments are stored as JSON in a local `.crit/` directory (gitignored by default)
+3. Comments are stored under `.crit/` as YAML review files (gitignored by default)
 4. `crit status <path>` outputs comments as JSON for Claude (or any tool) to consume
 5. Claude reads the comments, edits the document, and you can re-review
+
+On re-review, prior comments are auto-marked **resolved**: hidden in the TUI by default (`a` toggles visibility) and split out as `resolved_comments` in `crit status` so they don't re-trigger edits.
 
 ## Keybindings
 
@@ -130,6 +134,7 @@ This is how the Claude Code skill invokes crit — `--detach --wait` is a single
 | `enter` | Add comment at current line |
 | `v` | Visual select mode (multi-line comments) |
 | `s` | Toggle comment sidebar |
+| `a` | Show / hide resolved comments (hidden by default) |
 | `[` / `]` | Jump to prev / next comment |
 | `q` | Save & quit |
 

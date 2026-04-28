@@ -96,6 +96,32 @@ func (s *ReviewState) AddComment(c Comment) {
 	s.Comments = append(s.Comments, c)
 }
 
+// MarkAllResolved flips Resolved=true on every unresolved comment and reports
+// whether anything changed, so callers can skip a Save when there's no work.
+func (s *ReviewState) MarkAllResolved() bool {
+	changed := false
+	for i := range s.Comments {
+		if !s.Comments[i].Resolved {
+			s.Comments[i].Resolved = true
+			changed = true
+		}
+	}
+	return changed
+}
+
+// Counts returns the unresolved and resolved comment totals without
+// allocating, for callers that only need counts (vs Partition, which copies).
+func (s *ReviewState) Counts() (newCount, resolvedCount int) {
+	for _, c := range s.Comments {
+		if c.Resolved {
+			resolvedCount++
+		} else {
+			newCount++
+		}
+	}
+	return
+}
+
 func (s *ReviewState) DeleteComment(id string) {
 	for i, c := range s.Comments {
 		if c.ID == id {

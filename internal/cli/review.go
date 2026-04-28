@@ -263,10 +263,21 @@ func runDetachedReview(filePath string) error {
 		if err != nil {
 			return fmt.Errorf("reading review state: %w", err)
 		}
-		fmt.Fprintf(os.Stdout, "Review complete. %d comments.\n", len(state.Comments))
+		fmt.Fprint(os.Stdout, formatReviewSummary(state))
 	}
 
 	return nil
+}
+
+// formatReviewSummary returns the trailing user-facing line printed after a
+// detached --wait review completes. Resolved comments are reported separately
+// from new (unresolved) ones so callers can tell which counts matter.
+func formatReviewSummary(state *review.ReviewState) string {
+	unresolved, resolved := review.Partition(state)
+	if len(resolved) > 0 {
+		return fmt.Sprintf("Review complete. %d new · %d resolved.\n", len(unresolved), len(resolved))
+	}
+	return fmt.Sprintf("Review complete. %d new.\n", len(unresolved))
 }
 
 // resolveExecutable returns the absolute path to the currently running binary.

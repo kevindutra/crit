@@ -43,11 +43,24 @@ After the user confirms the review is complete, read the aggregate review commen
 crit status --code
 ```
 
-This outputs JSON with all files and their comments.
+This outputs JSON with all files and their comments. The shape:
+
+```json
+{
+  "files": [
+    {"file": "path/to/file.go", "comments": [...], "resolved_comments": [...]}
+  ],
+  "total_comments": 5,
+  "total_resolved": 2,
+  "load_errors": []
+}
+```
+
+**Only `comments` is actionable.** `resolved_comments` (and the matching `total_resolved`) are feedback from a prior review round that was already addressed — keep them in mind for context, but do **not** re-edit code in response to them. If `load_errors` is non-empty, surface it to the user; the totals may be incomplete.
 
 ## Step 3: Address comments
 
-For each file in the `files` array, for each comment:
+For each file in the `files` array, walk the **`comments`** array (not `resolved_comments`):
 
 1. Read the `line` number and `content_snippet` to locate where the comment applies
 2. Read the `body` for what the reviewer wants changed

@@ -9,6 +9,16 @@ type Comment struct {
 	ContentSnippet string    `json:"content_snippet" yaml:"content_snippet"`
 	Body           string    `json:"body" yaml:"body"`
 	CreatedAt      time.Time `json:"created_at" yaml:"created_at"`
+	Resolved       bool      `json:"resolved,omitempty" yaml:"resolved,omitempty"`
+}
+
+// EndAt returns the line where the annotation visually anchors: EndLine when
+// the comment spans a range, otherwise Line.
+func (c Comment) EndAt() int {
+	if c.EndLine > 0 {
+		return c.EndLine
+	}
+	return c.Line
 }
 
 type ReviewState struct {
