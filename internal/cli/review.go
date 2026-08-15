@@ -170,11 +170,11 @@ func runDetachedCodeReview() error {
 	critCmd := fmt.Sprintf("CRIT_DETACHED=1 %s review --code%s ; tmux wait-for -S %s",
 		shellEscape(critBin), baseFlag, channel)
 
-	splitCmd := exec.Command(tmuxBin, "split-window", "-h", "-p", "70", critCmd)
+	splitCmd := exec.Command(tmuxBin, splitWindowArgs(true, critCmd)...)
 	if err := runCommand(splitCmd); err != nil {
 		// Retry without -p flag — percentage sizing fails when parent pane
 		// size isn't available (e.g. invoked from a subprocess like Claude Code)
-		splitCmd = exec.Command(tmuxBin, "split-window", "-h", critCmd)
+		splitCmd = exec.Command(tmuxBin, splitWindowArgs(false, critCmd)...)
 		if err := runCommand(splitCmd); err != nil {
 			return fmt.Errorf("failed to open tmux pane: %w", err)
 		}
@@ -241,11 +241,11 @@ func runDetachedReview(filePath string) error {
 	channel := fmt.Sprintf("crit-review-%d", os.Getpid())
 	critCmd := buildTmuxPaneCommand(critBin, absPath, channel)
 
-	splitCmd := exec.Command(tmuxBin, "split-window", "-h", "-p", "70", critCmd)
+	splitCmd := exec.Command(tmuxBin, splitWindowArgs(true, critCmd)...)
 	if err := runCommand(splitCmd); err != nil {
 		// Retry without -p flag — percentage sizing fails when parent pane
 		// size isn't available (e.g. invoked from a subprocess like Claude Code)
-		splitCmd = exec.Command(tmuxBin, "split-window", "-h", critCmd)
+		splitCmd = exec.Command(tmuxBin, splitWindowArgs(false, critCmd)...)
 		if err := runCommand(splitCmd); err != nil {
 			return fmt.Errorf("failed to open tmux pane: %w", err)
 		}
@@ -276,6 +276,19 @@ func resolveExecutable() (string, error) {
 		return "", err
 	}
 	return filepath.EvalSymlinks(exe)
+}
+
+// splitWindowArgs builds the tmux split-window arguments, targeting the
+// invoking pane via TMUX_PANE rather than the currently active pane.
+func splitWindowArgs(withSize bool, critCmd string) []string {
+	args := []string{"split-window", "-h"}
+	if pane := os.Getenv("TMUX_PANE"); pane != "" {
+		args = append(args, "-t", pane)
+	}
+	if withSize {
+		args = append(args, "-p", "70")
+	}
+	return append(args, critCmd)
 }
 
 // buildTmuxPaneCommand constructs the shell command string to run inside a tmux split pane.
