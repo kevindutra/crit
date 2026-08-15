@@ -31,6 +31,31 @@ func TestBuildTmuxPaneCommandEscapesQuotes(t *testing.T) {
 	}
 }
 
+func TestSplitWindowArgsTargetsInvokingPane(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%42")
+
+	args := splitWindowArgs(true, "crit review")
+	want := []string{"split-window", "-h", "-t", "%42", "-p", "70", "crit review"}
+	if strings.Join(args, " ") != strings.Join(want, " ") {
+		t.Errorf("splitWindowArgs = %v, want %v", args, want)
+	}
+
+	args = splitWindowArgs(false, "crit review")
+	want = []string{"split-window", "-h", "-t", "%42", "crit review"}
+	if strings.Join(args, " ") != strings.Join(want, " ") {
+		t.Errorf("splitWindowArgs = %v, want %v", args, want)
+	}
+}
+
+func TestSplitWindowArgsWithoutPaneEnv(t *testing.T) {
+	t.Setenv("TMUX_PANE", "")
+
+	args := splitWindowArgs(true, "crit review")
+	if containsArg(args, "-t") {
+		t.Errorf("expected no -t flag when TMUX_PANE is unset, got: %v", args)
+	}
+}
+
 func TestShellEscape(t *testing.T) {
 	tests := []struct {
 		input    string
