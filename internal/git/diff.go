@@ -134,38 +134,43 @@ func DiffFile(path string, ref string) (*DiffInfo, error) {
 }
 
 // diffNameStatus runs git diff --name-status and parses the output.
+// It uses -z so paths with spaces, tabs, or non-ASCII characters arrive
+// unquoted and NUL-separated.
 func diffNameStatus(ref string) ([]FileChange, error) {
-	out, err := gitCommand("diff", ref, "--name-status")
+	out, err := gitCommand("diff", ref, "--name-status", "-z")
 	if err != nil {
 		return nil, fmt.Errorf("git diff --name-status: %w", err)
 	}
+	return parseNameStatusZ(out), nil
+}
+
+// parseNameStatusZ parses NUL-separated `git diff --name-status -z` output:
+// each entry is a status token followed by one path, or two paths for
+// renames and copies.
+func parseNameStatusZ(out string) []FileChange {
+	tokens := strings.Split(out, "\x00")
 
 	var files []FileChange
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
+	for i := 0; i+1 < len(tokens); {
+		status := tokens[i]
+		if status == "" {
+			i++
 			continue
 		}
 
-		status := parts[0]
-		path := parts[1]
-
-		fc := FileChange{Path: path}
+		fc := FileChange{Path: tokens[i+1]}
+		i += 2
 		switch {
-		case status == "M":
-			fc.Status = StatusModified
 		case status == "A":
 			fc.Status = StatusAdded
 		case status == "D":
 			fc.Status = StatusDeleted
-		case strings.HasPrefix(status, "R"):
+		case strings.HasPrefix(status, "R"), strings.HasPrefix(status, "C"):
 			fc.Status = StatusRenamed
-			if len(parts) >= 3 {
-				fc.OldPath = parts[1]
-				fc.Path = parts[2]
+			if i < len(tokens) {
+				fc.OldPath = fc.Path
+				fc.Path = tokens[i]
+				i++
 			}
 		default:
 			fc.Status = StatusModified
@@ -174,42 +179,56 @@ func diffNameStatus(ref string) ([]FileChange, error) {
 		files = append(files, fc)
 	}
 
-	return files, nil
+	return files
 }
 
 // detectBinaryFiles returns a set of paths that are binary.
 func detectBinaryFiles(ref string) (map[string]bool, error) {
-	out, err := gitCommand("diff", ref, "--numstat")
+	out, err := gitCommand("diff", ref, "--numstat", "-z")
 	if err != nil {
 		return nil, fmt.Errorf("git diff --numstat: %w", err)
 	}
+	return parseNumstatZ(out), nil
+}
 
+// parseNumstatZ parses NUL-separated `git diff --numstat -z` output.
+// Each entry is "added\tdeleted\tpath"; binary files show "-" for both
+// counts. For renames and copies the path field is empty and the old and
+// new paths follow as two separate NUL-terminated tokens.
+func parseNumstatZ(out string) map[string]bool {
 	binaries := make(map[string]bool)
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if line == "" {
+	tokens := strings.Split(out, "\x00")
+	for i := 0; i < len(tokens); i++ {
+		parts := strings.SplitN(tokens[i], "\t", 3)
+		if len(parts) < 3 {
 			continue
 		}
-		// Binary files show "-\t-\tpath"
-		if strings.HasPrefix(line, "-\t-\t") {
-			path := strings.TrimPrefix(line, "-\t-\t")
+
+		binary := parts[0] == "-" && parts[1] == "-"
+		path := parts[2]
+		if path == "" && i+2 < len(tokens) {
+			path = tokens[i+2]
+			i += 2
+		}
+		if binary && path != "" {
 			binaries[path] = true
 		}
 	}
 
-	return binaries, nil
+	return binaries
 }
 
 // untrackedFiles returns untracked file paths.
 func untrackedFiles() ([]string, error) {
-	out, err := gitCommand("ls-files", "--others", "--exclude-standard")
+	out, err := gitCommand("ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return nil, fmt.Errorf("git ls-files: %w", err)
 	}
 
 	var paths []string
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if line != "" {
-			paths = append(paths, line)
+	for _, path := range strings.Split(out, "\x00") {
+		if path != "" {
+			paths = append(paths, path)
 		}
 	}
 	return paths, nil
