@@ -1439,8 +1439,22 @@ func (m *AppModel) extraLinesPerDocLine() map[int]int {
 		textWidth = 10
 	}
 
+	// Mirror rebuildContent: table rows and Chroma-highlighted lines are
+	// rendered as a single line each; only the markdown/plain-text path wraps.
+	inTable := make(map[int]bool)
+	for _, tb := range detectTableBlocks(t.doc.Lines) {
+		for l := tb.startLine; l <= tb.endLine; l++ {
+			inTable[l] = true
+		}
+	}
 	for i, line := range t.doc.Lines {
 		lineNum := i + 1
+		if inTable[lineNum] {
+			continue
+		}
+		if !t.isMarkdown && t.chromaLines != nil && i < len(t.chromaLines) {
+			continue
+		}
 		wrapped := lipgloss.Wrap(line, textWidth, "")
 		wrapCount := strings.Count(wrapped, "\n")
 		if wrapCount > 0 {
