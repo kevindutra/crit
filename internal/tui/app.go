@@ -34,6 +34,7 @@ const (
 	noModal modalType = iota
 	commentModal
 	editModal
+	approveModal
 )
 
 // gutterWidth is the total width of the left gutter: line number (5) + marker (1) + space (1).
@@ -64,6 +65,10 @@ type AppModel struct {
 	// Editing state
 	editingID  string // ID of the comment being edited
 	modalFocus int    // 0=textarea, 1=save button, 2=cancel button, 3=delete button (edit modal only)
+
+	// True once the reviewer adds or edits a comment in this session;
+	// quitting without new feedback offers to approve and clear comments.
+	newFeedback bool
 
 	err error
 }
@@ -224,7 +229,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	if m.modal != noModal {
+	if m.modal == commentModal || m.modal == editModal {
 		m.modalTextarea, cmd = m.modalTextarea.Update(msg)
 		return m, cmd
 	}
@@ -243,6 +248,9 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.modal == commentModal || m.modal == editModal {
 		return m.handleTextModal(msg)
 	}
+	if m.modal == approveModal {
+		return m.handleApproveModal(msg)
+	}
 
 	// Tab search input mode
 	if m.tabSearching {
@@ -258,6 +266,13 @@ func (m *AppModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.tabs[i].state != nil {
 				review.Save(m.tabs[i].state)
 			}
+		}
+		// Quitting without new feedback while older comments remain is
+		// ambiguous: offer to approve by clearing them.
+		if !m.newFeedback && m.totalComments() > 0 {
+			m.modal = approveModal
+			m.modalFocus = 0
+			return m, nil
 		}
 		return m, tea.Quit
 
@@ -630,6 +645,7 @@ func (m *AppModel) modalSubmit() {
 		}
 		t.state.AddComment(c)
 	}
+	m.newFeedback = true
 
 	review.Save(t.state)
 	m.modal = noModal
@@ -653,6 +669,54 @@ func (m *AppModel) modalDelete() {
 	t.cursorAnnoIdx = 0
 	m.rebuildContent()
 	m.updateCommentSidebar()
+}
+
+// totalComments counts comments across all tabs.
+func (m *AppModel) totalComments() int {
+	n := 0
+	for i := range m.tabs {
+		if m.tabs[i].state != nil {
+			n += len(m.tabs[i].state.Comments)
+		}
+	}
+	return n
+}
+
+// approveAndClear removes all comments from every tab, marking the review
+// as approved for consumers that treat zero comments as approval.
+func (m *AppModel) approveAndClear() {
+	for i := range m.tabs {
+		if m.tabs[i].state != nil {
+			m.tabs[i].state.Comments = nil
+			review.Save(m.tabs[i].state)
+		}
+	}
+}
+
+// handleApproveModal processes keys for the approve-on-quit confirmation.
+func (m *AppModel) handleApproveModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if key.Matches(msg, keys.Cancel) {
+		m.modal = noModal
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "y", "Y":
+		m.approveAndClear()
+		return m, tea.Quit
+	case "n", "N", "q", "ctrl+c":
+		m.modal = noModal
+		return m, tea.Quit
+	case "left", "right", "h", "l", "tab", "shift+tab":
+		m.modalFocus = 1 - m.modalFocus
+		return m, nil
+	case "enter":
+		if m.modalFocus == 0 {
+			m.approveAndClear()
+		}
+		return m, tea.Quit
+	}
+	return m, nil
 }
 
 func (m *AppModel) handleTextModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1956,6 +2020,20 @@ func (m AppModel) renderWithModal(background string) string {
 		}
 		content += m.modalTextarea.View() + "\n\n" + buttons
 		modalContent = modalStyle.Width(modalWidth).Render(content)
+
+	case approveModal:
+		title := modalTitleStyle.Render("Approve review?")
+		total := m.totalComments()
+		info := fmt.Sprintf(
+			"No new comments were added in this session.\nApproving clears the %d remaining comment(s).", total)
+
+		approveBtn := m.renderModalButton("Approve", "y", m.modalFocus == 0)
+		keepBtn := m.renderModalButton("Quit without approving", "n", m.modalFocus == 1)
+		buttons := lipgloss.JoinHorizontal(lipgloss.Center, approveBtn, "  ", keepBtn)
+		hint := footerStyle.Render("esc: back to review")
+
+		modalContent = modalStyle.Width(modalWidth).Render(
+			title + "\n" + info + "\n\n" + buttons + "\n" + hint)
 	}
 
 	bgW := lipgloss.Width(background)

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/kevindutra/crit/internal/review"
 )
 
@@ -64,5 +66,128 @@ func TestDocRenderedMsg_LoadsExistingComments(t *testing.T) {
 	}
 	if tab.state.Comments[0].Body != "This is a test comment" {
 		t.Errorf("expected comment body 'This is a test comment', got %s", tab.state.Comments[0].Body)
+	}
+}
+
+func newApproveTestApp(t *testing.T, comments []review.Comment) AppModel {
+	t.Helper()
+	t.Chdir(t.TempDir())
+	app := NewApp("test.go")
+	app.tabs[0].state = &review.ReviewState{File: "test.go", Comments: comments}
+	return app
+}
+
+func pressKeyCmd(app AppModel, code rune) (AppModel, tea.Cmd) {
+	updated, cmd := app.Update(tea.KeyPressMsg{Code: code})
+	switch v := updated.(type) {
+	case AppModel:
+		return v, cmd
+	case *AppModel:
+		return *v, cmd
+	}
+	panic("unexpected model type")
+}
+
+func isQuit(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(tea.QuitMsg)
+	return ok
+}
+
+func testComment() review.Comment {
+	return review.Comment{ID: "c1", Line: 1, Body: "please fix", CreatedAt: time.Now()}
+}
+
+func TestQuitWithRemainingComments_PromptsApproval(t *testing.T) {
+	app := newApproveTestApp(t, []review.Comment{testComment()})
+
+	app, cmd := pressKeyCmd(app, 'q')
+
+	if isQuit(cmd) {
+		t.Fatal("expected quit to be intercepted by approval prompt")
+	}
+	if app.modal != approveModal {
+		t.Fatalf("expected approveModal, got %v", app.modal)
+	}
+}
+
+func TestApproveModal_ApproveClearsComments(t *testing.T) {
+	app := newApproveTestApp(t, []review.Comment{testComment()})
+	app, _ = pressKeyCmd(app, 'q')
+
+	app, cmd := pressKeyCmd(app, 'y')
+
+	if !isQuit(cmd) {
+		t.Fatal("expected quit after approving")
+	}
+	if len(app.tabs[0].state.Comments) != 0 {
+		t.Errorf("expected comments cleared, got %d", len(app.tabs[0].state.Comments))
+	}
+	state, err := review.Load("test.go")
+	if err != nil {
+		t.Fatalf("loading saved state: %v", err)
+	}
+	if len(state.Comments) != 0 {
+		t.Errorf("expected persisted comments cleared, got %d", len(state.Comments))
+	}
+}
+
+func TestApproveModal_DeclineKeepsComments(t *testing.T) {
+	app := newApproveTestApp(t, []review.Comment{testComment()})
+	app, _ = pressKeyCmd(app, 'q')
+
+	app, cmd := pressKeyCmd(app, 'n')
+
+	if !isQuit(cmd) {
+		t.Fatal("expected quit after declining")
+	}
+	if len(app.tabs[0].state.Comments) != 1 {
+		t.Errorf("expected comments kept, got %d", len(app.tabs[0].state.Comments))
+	}
+}
+
+func TestApproveModal_EscReturnsToReview(t *testing.T) {
+	app := newApproveTestApp(t, []review.Comment{testComment()})
+	app, _ = pressKeyCmd(app, 'q')
+
+	app, cmd := pressKeyCmd(app, tea.KeyEscape)
+
+	if isQuit(cmd) {
+		t.Fatal("expected esc to stay in the review")
+	}
+	if app.modal != noModal {
+		t.Fatalf("expected modal dismissed, got %v", app.modal)
+	}
+	if len(app.tabs[0].state.Comments) != 1 {
+		t.Errorf("expected comments kept, got %d", len(app.tabs[0].state.Comments))
+	}
+}
+
+func TestQuitWithNewFeedback_NoPrompt(t *testing.T) {
+	app := newApproveTestApp(t, []review.Comment{testComment()})
+	app.newFeedback = true
+
+	app, cmd := pressKeyCmd(app, 'q')
+
+	if !isQuit(cmd) {
+		t.Fatal("expected direct quit when new feedback was given")
+	}
+	if app.modal != noModal {
+		t.Fatalf("expected no modal, got %v", app.modal)
+	}
+}
+
+func TestQuitWithNoComments_NoPrompt(t *testing.T) {
+	app := newApproveTestApp(t, nil)
+
+	app, cmd := pressKeyCmd(app, 'q')
+
+	if !isQuit(cmd) {
+		t.Fatal("expected direct quit with no comments")
+	}
+	if app.modal != noModal {
+		t.Fatalf("expected no modal, got %v", app.modal)
 	}
 }

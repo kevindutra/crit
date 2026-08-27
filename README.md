@@ -131,7 +131,7 @@ This is how the Claude Code skill invokes crit — `--detach --wait` is a single
 | `v` | Visual select mode (multi-line comments) |
 | `s` | Toggle comment sidebar |
 | `[` / `]` | Jump to prev / next comment |
-| `q` | Save & quit |
+| `q` | Save & quit (offers to approve when no new comments were added) |
 
 **Code review only:**
 
