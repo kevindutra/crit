@@ -1031,41 +1031,26 @@ func (m *AppModel) rebuildContent() {
 				displayLine = chromaLines[i]
 			}
 
-			// For Chroma-highlighted content, we skip wrapping (ANSI codes break lipgloss.Wrap)
-			// and apply background overlays directly.
-			if !isMarkdown && chromaLines != nil && i < len(chromaLines) {
-				styledLine := displayLine
-				if isSelected {
-					styledLine = inlineBackground(selectedLineBg, styledLine)
-				} else if isSidebarHighlight {
-					styledLine = inlineBackground(sidebarHighlightBg, styledLine)
-				} else if isChanged {
-					styledLine = inlineBackground(diffChangedLineBg, styledLine)
-				}
-				b.WriteString(fmt.Sprintf("%s%s %s\n", marker, numStr, styledLine))
-			} else {
-				// Markdown or plain text path with wrapping
-				styleFunc := func(s string) string { return s }
-				if isMarkdown {
-					styleFunc = func(s string) string { return highlightMarkdown(s) }
-				}
-				if isSelected {
-					styleFunc = func(s string) string { return inlineBackground(selectedLineBg, s) }
-				} else if isSidebarHighlight {
-					styleFunc = func(s string) string { return inlineBackground(sidebarHighlightBg, s) }
-				} else if isChanged {
-					base := styleFunc
-					styleFunc = func(s string) string { return inlineBackground(diffChangedLineBg, base(s)) }
-				}
+			styleFunc := func(s string) string { return s }
+			if isMarkdown {
+				styleFunc = func(s string) string { return highlightMarkdown(s) }
+			}
+			if isSelected {
+				styleFunc = func(s string) string { return inlineBackground(selectedLineBg, s) }
+			} else if isSidebarHighlight {
+				styleFunc = func(s string) string { return inlineBackground(sidebarHighlightBg, s) }
+			} else if isChanged {
+				base := styleFunc
+				styleFunc = func(s string) string { return inlineBackground(diffChangedLineBg, base(s)) }
+			}
 
-				wrapped := lipgloss.Wrap(line, textWidth, "")
-				wrappedLines := strings.Split(wrapped, "\n")
-				for wi, wl := range wrappedLines {
-					if wi == 0 {
-						b.WriteString(fmt.Sprintf("%s%s %s\n", marker, numStr, styleFunc(wl)))
-					} else {
-						b.WriteString(fmt.Sprintf(" %s %s\n", continuationGutter, styleFunc(wl)))
-					}
+			wrapped := lipgloss.Wrap(displayLine, textWidth, "")
+			wrappedLines := strings.Split(wrapped, "\n")
+			for wi, wl := range wrappedLines {
+				if wi == 0 {
+					b.WriteString(fmt.Sprintf("%s%s %s\n", marker, numStr, styleFunc(wl)))
+				} else {
+					b.WriteString(fmt.Sprintf(" %s %s\n", continuationGutter, styleFunc(wl)))
 				}
 			}
 		}
@@ -1486,9 +1471,24 @@ func (m *AppModel) extraLinesPerDocLine() map[int]int {
 		textWidth = 10
 	}
 
+	// Mirror rebuildContent: table rows are rendered as a single line; all
+	// other content wraps to the available text width.
+	inTable := make(map[int]bool)
+	for _, tb := range detectTableBlocks(t.doc.Lines) {
+		for l := tb.startLine; l <= tb.endLine; l++ {
+			inTable[l] = true
+		}
+	}
 	for i, line := range t.doc.Lines {
 		lineNum := i + 1
-		wrapped := lipgloss.Wrap(line, textWidth, "")
+		if inTable[lineNum] {
+			continue
+		}
+		displayLine := line
+		if !t.isMarkdown && t.chromaLines != nil && i < len(t.chromaLines) {
+			displayLine = t.chromaLines[i]
+		}
+		wrapped := lipgloss.Wrap(displayLine, textWidth, "")
 		wrapCount := strings.Count(wrapped, "\n")
 		if wrapCount > 0 {
 			counts[lineNum] += wrapCount
