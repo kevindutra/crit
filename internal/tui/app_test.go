@@ -3,9 +3,11 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	gitpkg "github.com/kevindutra/crit/internal/git"
 	"github.com/kevindutra/crit/internal/review"
 )
 
@@ -64,5 +66,35 @@ func TestDocRenderedMsg_LoadsExistingComments(t *testing.T) {
 	}
 	if tab.state.Comments[0].Body != "This is a test comment" {
 		t.Errorf("expected comment body 'This is a test comment', got %s", tab.state.Comments[0].Body)
+	}
+}
+
+func TestDeletedMarkdownLinesWrap(t *testing.T) {
+	longLine := strings.Repeat("word ", 100)
+	lines := deletedDisplayLines(longLine, "", nil, true, 72)
+	if len(lines) < 2 {
+		t.Fatalf("expected deleted Markdown line to wrap, got %d display line", len(lines))
+	}
+}
+
+func TestInlineDiffDisplayLinesUseNeutralCommonBackground(t *testing.T) {
+	initAdaptiveStyles(true)
+	segments := []gitpkg.InlineSegment{
+		{Content: "common ", Changed: false},
+		{Content: "added", Changed: true},
+	}
+
+	rendered := strings.Join(inlineDiffDisplayLines(segments, true, 80, diffCommonTextBg, diffAddedTextBg), "\n")
+	commonBackground := bgToAnsi(diffCommonTextBg.GetBackground())
+	changedBackground := bgToAnsi(diffAddedTextBg.GetBackground())
+	if commonBackground == changedBackground {
+		t.Fatal("expected common and changed text to use distinct backgrounds")
+	}
+	if commonBackground == bgToAnsi(diffChangedLineBg.GetBackground()) ||
+		commonBackground == bgToAnsi(diffDeletedLineBg.GetBackground()) {
+		t.Fatal("expected replacement-line common text to use a neutral background")
+	}
+	if !strings.Contains(rendered, commonBackground) || !strings.Contains(rendered, changedBackground) {
+		t.Errorf("rendered line does not contain both backgrounds: %q", rendered)
 	}
 }

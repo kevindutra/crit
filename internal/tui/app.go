@@ -936,17 +936,6 @@ func (m *AppModel) rebuildContent() {
 		}
 	}
 
-	// inlineBg applies a background color to just the content text (no full-width padding).
-	// For content with embedded ANSI codes (Chroma), it re-injects the bg after resets.
-	inlineBg := func(style lipgloss.Style, content string) string {
-		bgAnsi := bgToAnsi(style.GetBackground())
-		if bgAnsi == "" {
-			return style.Render(content)
-		}
-		patched := strings.ReplaceAll(content, "\033[0m", "\033[0m"+bgAnsi)
-		return bgAnsi + patched + "\033[0m"
-	}
-
 	var b strings.Builder
 	b.Grow(len(t.doc.Lines) * 200) // pre-allocate to reduce allocations
 	for i, line := range t.doc.Lines {
@@ -956,13 +945,19 @@ func (m *AppModel) rebuildContent() {
 		if dels, ok := t.deletedAfter[lineNum-1]; ok {
 			cachedHL := t.deletedLineCache[lineNum-1]
 			for di, del := range dels {
-				delMarker := diffDeletedGutter.Render("-")
-				delNum := diffDeletedLineNum.Render(fmt.Sprintf("%d", del.OldLineNum))
-				delContent := del.Content
+				var cached string
 				if cachedHL != nil && di < len(cachedHL) {
-					delContent = cachedHL[di]
+					cached = cachedHL[di]
 				}
-				b.WriteString(fmt.Sprintf("%s%s %s\n", delMarker, delNum, inlineBg(diffDeletedLineBg, delContent)))
+				for wi, delContent := range deletedDisplayLines(del.Content, cached, del.Inline, isMarkdown, textWidth) {
+					if wi == 0 {
+						delMarker := diffDeletedGutter.Render("-")
+						delNum := diffDeletedLineNum.Render(fmt.Sprintf("%d", del.OldLineNum))
+						fmt.Fprintf(&b, "%s%s %s\n", delMarker, delNum, delContent)
+					} else {
+						fmt.Fprintf(&b, " %s %s\n", continuationGutter, delContent)
+					}
+				}
 			}
 		}
 
@@ -970,6 +965,7 @@ func (m *AppModel) rebuildContent() {
 		isSelected := t.selecting && lineNum >= selStart && lineNum <= selEnd
 		isSidebarHighlight := sidebarHighlightStart > 0 && lineNum >= sidebarHighlightStart && lineNum <= sidebarHighlightEnd
 		isChanged := t.changedLines != nil && t.changedLines[lineNum]
+		inlineChanges := t.inlineChanges[lineNum]
 
 		// Marker column
 		var marker string
@@ -1002,7 +998,15 @@ func (m *AppModel) rebuildContent() {
 		}
 
 		// Check if this line is part of a table block
-		if tb, inTable := tableBlockMap[lineNum]; inTable {
+		if len(inlineChanges) > 0 && !isSelected && !isSidebarHighlight {
+			for wi, styledLine := range inlineDiffDisplayLines(inlineChanges, isMarkdown, textWidth, diffCommonTextBg, diffAddedTextBg) {
+				if wi == 0 {
+					fmt.Fprintf(&b, "%s%s %s\n", marker, numStr, styledLine)
+				} else {
+					fmt.Fprintf(&b, " %s %s\n", continuationGutter, styledLine)
+				}
+			}
+		} else if tb, inTable := tableBlockMap[lineNum]; inTable {
 			var styledLine string
 			if reTableSep.MatchString(line) {
 				styledLine = formatTableSep(tb.colWidths)
@@ -1012,11 +1016,11 @@ func (m *AppModel) rebuildContent() {
 			}
 
 			if isSelected {
-				styledLine = inlineBg(selectedLineBg, styledLine)
+				styledLine = inlineBackground(selectedLineBg, styledLine)
 			} else if isSidebarHighlight {
-				styledLine = inlineBg(sidebarHighlightBg, styledLine)
+				styledLine = inlineBackground(sidebarHighlightBg, styledLine)
 			} else if isChanged {
-				styledLine = inlineBg(diffChangedLineBg, styledLine)
+				styledLine = inlineBackground(diffChangedLineBg, styledLine)
 			}
 
 			b.WriteString(fmt.Sprintf("%s%s %s\n", marker, numStr, styledLine))
@@ -1032,11 +1036,11 @@ func (m *AppModel) rebuildContent() {
 			if !isMarkdown && chromaLines != nil && i < len(chromaLines) {
 				styledLine := displayLine
 				if isSelected {
-					styledLine = inlineBg(selectedLineBg, styledLine)
+					styledLine = inlineBackground(selectedLineBg, styledLine)
 				} else if isSidebarHighlight {
-					styledLine = inlineBg(sidebarHighlightBg, styledLine)
+					styledLine = inlineBackground(sidebarHighlightBg, styledLine)
 				} else if isChanged {
-					styledLine = inlineBg(diffChangedLineBg, styledLine)
+					styledLine = inlineBackground(diffChangedLineBg, styledLine)
 				}
 				b.WriteString(fmt.Sprintf("%s%s %s\n", marker, numStr, styledLine))
 			} else {
@@ -1046,12 +1050,12 @@ func (m *AppModel) rebuildContent() {
 					styleFunc = func(s string) string { return highlightMarkdown(s) }
 				}
 				if isSelected {
-					styleFunc = func(s string) string { return inlineBg(selectedLineBg, s) }
+					styleFunc = func(s string) string { return inlineBackground(selectedLineBg, s) }
 				} else if isSidebarHighlight {
-					styleFunc = func(s string) string { return inlineBg(sidebarHighlightBg, s) }
+					styleFunc = func(s string) string { return inlineBackground(sidebarHighlightBg, s) }
 				} else if isChanged {
 					base := styleFunc
-					styleFunc = func(s string) string { return inlineBg(diffChangedLineBg, base(s)) }
+					styleFunc = func(s string) string { return inlineBackground(diffChangedLineBg, base(s)) }
 				}
 
 				wrapped := lipgloss.Wrap(line, textWidth, "")
@@ -1192,6 +1196,49 @@ func highlightMarkdown(line string) string {
 	}
 
 	return highlightInline(line)
+}
+
+func inlineBackground(style lipgloss.Style, content string) string {
+	bgAnsi := bgToAnsi(style.GetBackground())
+	if bgAnsi == "" {
+		return style.Render(content)
+	}
+	patched := strings.ReplaceAll(content, "\033[0m", "\033[0m"+bgAnsi)
+	return bgAnsi + patched + "\033[0m"
+}
+
+func inlineDiffDisplayLines(segments []gitpkg.InlineSegment, isMarkdown bool, width int, base, changed lipgloss.Style) []string {
+	var b strings.Builder
+	for _, segment := range segments {
+		content := segment.Content
+		if isMarkdown {
+			content = highlightMarkdown(content)
+		}
+		style := base
+		if segment.Changed {
+			style = changed
+		}
+		b.WriteString(inlineBackground(style, content))
+	}
+	return strings.Split(lipgloss.Wrap(b.String(), width, ""), "\n")
+}
+
+func deletedDisplayLines(content, cached string, inline []gitpkg.InlineSegment, isMarkdown bool, width int) []string {
+	if len(inline) > 0 {
+		return inlineDiffDisplayLines(inline, isMarkdown, width, diffCommonTextBg, diffDeletedTextBg)
+	}
+	if cached != "" {
+		return []string{inlineBackground(diffDeletedLineBg, cached)}
+	}
+	if !isMarkdown {
+		return []string{inlineBackground(diffDeletedLineBg, content)}
+	}
+
+	lines := strings.Split(lipgloss.Wrap(content, width, ""), "\n")
+	for i := range lines {
+		lines[i] = inlineBackground(diffDeletedLineBg, highlightMarkdown(lines[i]))
+	}
+	return lines
 }
 
 // tableBlock represents a contiguous range of markdown table lines.
@@ -1459,14 +1506,16 @@ func (m *AppModel) extraLinesPerDocLine() map[int]int {
 		}
 	}
 
-	// Account for deleted lines rendered before each doc line
+	// Account for deleted lines rendered before each doc line.
 	if t.deletedAfter != nil {
 		for afterLine, dels := range t.deletedAfter {
 			targetLine := afterLine + 1
 			if targetLine < 1 {
 				targetLine = 1
 			}
-			counts[targetLine] += len(dels)
+			for _, del := range dels {
+				counts[targetLine] += len(deletedDisplayLines(del.Content, "", del.Inline, t.isMarkdown, textWidth))
+			}
 		}
 	}
 
