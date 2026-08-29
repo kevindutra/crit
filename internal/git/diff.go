@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"unicode"
 
+	"github.com/aymanbagabas/go-udiff/lcs"
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
 )
 
@@ -70,14 +72,22 @@ func ChangedFilesFrom(ref string) ([]FileChange, error) {
 
 // DiffInfo contains parsed diff information for a single file.
 type DiffInfo struct {
-	ChangedLines map[int]bool          // added/modified line numbers (1-based) in new file
-	DeletedAfter map[int][]DeletedLine // deleted lines keyed by the new-file line they appear after (0 = before line 1)
+	ChangedLines  map[int]bool            // added/modified line numbers (1-based) in new file
+	InlineChanges map[int][]InlineSegment // inline changes keyed by new-file line number
+	DeletedAfter  map[int][]DeletedLine   // deleted lines keyed by the new-file line they appear after (0 = before line 1)
 }
 
 // DeletedLine represents a line that was deleted from the old version.
 type DeletedLine struct {
 	OldLineNum int
 	Content    string
+	Inline     []InlineSegment
+}
+
+// InlineSegment is a changed or unchanged portion of a replacement line.
+type InlineSegment struct {
+	Content string
+	Changed bool
 }
 
 // DiffFile returns full diff information for a file relative to the given ref.
@@ -97,8 +107,9 @@ func DiffFile(path string, ref string) (*DiffInfo, error) {
 	}
 
 	info := &DiffInfo{
-		ChangedLines: make(map[int]bool),
-		DeletedAfter: make(map[int][]DeletedLine),
+		ChangedLines:  make(map[int]bool),
+		InlineChanges: make(map[int][]InlineSegment),
+		DeletedAfter:  make(map[int][]DeletedLine),
 	}
 
 	for _, f := range files {
@@ -127,10 +138,132 @@ func DiffFile(path string, ref string) (*DiffInfo, error) {
 					oldLine++
 				}
 			}
+			annotateInlineChanges(info, frag)
 		}
 	}
 
 	return info, nil
+}
+
+func annotateInlineChanges(info *DiffInfo, frag *gitdiff.TextFragment) {
+	oldLine := int(frag.OldPosition)
+	newLine := int(frag.NewPosition)
+	for i := 0; i < len(frag.Lines); {
+		if frag.Lines[i].Op != gitdiff.OpDelete {
+			switch frag.Lines[i].Op {
+			case gitdiff.OpAdd:
+				newLine++
+			case gitdiff.OpContext:
+				oldLine++
+				newLine++
+			}
+			i++
+			continue
+		}
+
+		var deleted []struct {
+			line    int
+			content string
+		}
+		for i < len(frag.Lines) && frag.Lines[i].Op == gitdiff.OpDelete {
+			deleted = append(deleted, struct {
+				line    int
+				content string
+			}{oldLine, strings.TrimSuffix(frag.Lines[i].Line, "\n")})
+			oldLine++
+			i++
+		}
+
+		var added []struct {
+			line    int
+			content string
+		}
+		for i < len(frag.Lines) && frag.Lines[i].Op == gitdiff.OpAdd {
+			added = append(added, struct {
+				line    int
+				content string
+			}{newLine, strings.TrimSuffix(frag.Lines[i].Line, "\n")})
+			newLine++
+			i++
+		}
+
+		if len(deleted) != len(added) {
+			continue
+		}
+		for j := range deleted {
+			oldSegments, newSegments := inlineDiff(deleted[j].content, added[j].content)
+			info.InlineChanges[added[j].line] = newSegments
+			setDeletedInline(info, deleted[j].line, oldSegments)
+		}
+	}
+}
+
+func inlineDiff(before, after string) ([]InlineSegment, []InlineSegment) {
+	beforeTokens := splitInlineTokens(before)
+	afterTokens := splitInlineTokens(after)
+	diffs := lcs.DiffLines(beforeTokens, afterTokens)
+	if len(diffs) == 0 {
+		return nil, nil
+	}
+
+	oldSegments := make([]InlineSegment, 0, len(diffs)*2+1)
+	newSegments := make([]InlineSegment, 0, len(diffs)*2+1)
+	lastEnd := 0
+	for _, diff := range diffs {
+		common := strings.Join(beforeTokens[lastEnd:diff.Start], "")
+		oldSegments = appendInlineSegment(oldSegments, common, false)
+		newSegments = appendInlineSegment(newSegments, common, false)
+		oldSegments = appendInlineSegment(oldSegments, strings.Join(beforeTokens[diff.Start:diff.End], ""), true)
+		newSegments = appendInlineSegment(newSegments, strings.Join(afterTokens[diff.ReplStart:diff.ReplEnd], ""), true)
+		lastEnd = diff.End
+	}
+	common := strings.Join(beforeTokens[lastEnd:], "")
+	oldSegments = appendInlineSegment(oldSegments, common, false)
+	newSegments = appendInlineSegment(newSegments, common, false)
+	return oldSegments, newSegments
+}
+
+// splitInlineTokens preserves each whitespace run with the word before it, so
+// word-level matching can reconstruct the original line exactly.
+func splitInlineTokens(text string) []string {
+	if text == "" {
+		return nil
+	}
+
+	var tokens []string
+	start := 0
+	previousWasSpace := false
+	for i, r := range text {
+		isSpace := unicode.IsSpace(r)
+		if !isSpace && previousWasSpace {
+			tokens = append(tokens, text[start:i])
+			start = i
+		}
+		previousWasSpace = isSpace
+	}
+	return append(tokens, text[start:])
+}
+
+func appendInlineSegment(segments []InlineSegment, content string, changed bool) []InlineSegment {
+	if content == "" {
+		return segments
+	}
+	if len(segments) > 0 && segments[len(segments)-1].Changed == changed {
+		segments[len(segments)-1].Content += content
+		return segments
+	}
+	return append(segments, InlineSegment{Content: content, Changed: changed})
+}
+
+func setDeletedInline(info *DiffInfo, oldLine int, segments []InlineSegment) {
+	for anchor := range info.DeletedAfter {
+		for i := range info.DeletedAfter[anchor] {
+			if info.DeletedAfter[anchor][i].OldLineNum == oldLine {
+				info.DeletedAfter[anchor][i].Inline = segments
+				return
+			}
+		}
+	}
 }
 
 // diffNameStatus runs git diff --name-status and parses the output.

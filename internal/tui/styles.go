@@ -280,6 +280,9 @@ var (
 
 	diffChangedLineBg = lipgloss.NewStyle()
 	diffDeletedLineBg = lipgloss.NewStyle()
+	diffCommonTextBg  = lipgloss.NewStyle()
+	diffAddedTextBg   = lipgloss.NewStyle()
+	diffDeletedTextBg = lipgloss.NewStyle()
 
 	visualModeIndicator = lipgloss.NewStyle().
 				Bold(true).
@@ -314,6 +317,15 @@ func initAdaptiveStyles(hasDarkBG bool) {
 
 	diffDeletedLineBg = lipgloss.NewStyle().
 		Background(ld(lipgloss.Color("#F0D8D8"), lipgloss.Color("#3A1A1A")))
+
+	diffCommonTextBg = lipgloss.NewStyle().
+		Background(ld(lipgloss.Color("#E8E8E8"), lipgloss.Color("#303030")))
+
+	diffAddedTextBg = lipgloss.NewStyle().
+		Background(ld(lipgloss.Color("#A8DDA8"), lipgloss.Color("#286028")))
+
+	diffDeletedTextBg = lipgloss.NewStyle().
+		Background(ld(lipgloss.Color("#E8A8A8"), lipgloss.Color("#682828")))
 }
 
 // bgToAnsi converts a lipgloss color to a raw ANSI truecolor background escape sequence.
