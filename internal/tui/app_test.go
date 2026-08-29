@@ -171,3 +171,35 @@ func TestInlineDiffDisplayLinesUseNeutralCommonBackground(t *testing.T) {
 		t.Errorf("rendered line does not contain both backgrounds: %q", rendered)
 	}
 }
+
+func TestInlineDiffMarkdownRestoresSegmentBackgrounds(t *testing.T) {
+	initAdaptiveStyles(true)
+	segments := []gitpkg.InlineSegment{
+		{Content: "- **common** `code` tail ", Changed: false},
+		{Content: "**changed** `code` tail", Changed: true},
+	}
+	rendered := strings.Join(inlineDiffDisplayLines(
+		segments, true, 200, diffCommonTextBg, diffAddedTextBg), "\n")
+	commonBackground := bgToAnsi(diffCommonTextBg.GetBackground())
+	changedBackground := bgToAnsi(diffAddedTextBg.GetBackground())
+	if !strings.Contains(rendered, "\x1b[m"+commonBackground) {
+		t.Fatalf("common background was not restored after Markdown style reset: %q", rendered)
+	}
+	if !strings.Contains(rendered, "\x1b[m"+changedBackground) {
+		t.Fatalf("changed background was not restored after Markdown style reset: %q", rendered)
+	}
+}
+
+func TestInlineBackgroundResumesAfterInlineCode(t *testing.T) {
+	initAdaptiveStyles(true)
+	base := bgToAnsi(diffChangedLineBg.GetBackground())
+	rendered := inlineBackground(diffChangedLineBg, "before "+mdCodeStyle.Render("code")+" after")
+	beforeAfter := rendered[:strings.Index(rendered, "after")]
+	reset := strings.LastIndex(beforeAfter, "\x1b[m")
+	if reset < 0 {
+		t.Fatalf("inline code has no background reset: %q", rendered)
+	}
+	if resumed := strings.LastIndex(beforeAfter, base); resumed < reset {
+		t.Fatalf("line background was not resumed after inline code: %q", rendered)
+	}
+}

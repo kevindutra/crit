@@ -14,6 +14,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 
 	"github.com/kevindutra/crit/internal/document"
@@ -1188,8 +1189,34 @@ func inlineBackground(style lipgloss.Style, content string) string {
 	if bgAnsi == "" {
 		return style.Render(content)
 	}
-	patched := strings.ReplaceAll(content, "\033[0m", "\033[0m"+bgAnsi)
-	return bgAnsi + patched + "\033[0m"
+	var patched strings.Builder
+	patched.Grow(len(content) + len(bgAnsi))
+	reapply := false
+	parser := ansi.GetParser()
+	defer ansi.PutParser(parser)
+	parser.SetHandler(ansi.Handler{HandleCsi: func(cmd ansi.Cmd, params ansi.Params) {
+		if cmd != 'm' {
+			return
+		}
+		reapply = len(params) == 0
+		params.ForEach(0, func(_ int, param int, _ bool) {
+			switch {
+			case param == 0 || param == 49:
+				reapply = true
+			case param == 48, param >= 40 && param <= 47, param >= 100 && param <= 107:
+				reapply = false
+			}
+		})
+	}})
+	for i := range len(content) {
+		parser.Advance(content[i])
+		patched.WriteByte(content[i])
+		if reapply {
+			patched.WriteString(bgAnsi)
+			reapply = false
+		}
+	}
+	return bgAnsi + patched.String() + "\033[0m"
 }
 
 func inlineDiffDisplayLines(segments []gitpkg.InlineSegment, isMarkdown bool, width int, base, changed lipgloss.Style) []string {
